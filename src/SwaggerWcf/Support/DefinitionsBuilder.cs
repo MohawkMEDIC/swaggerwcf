@@ -6,6 +6,8 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using SwaggerWcf.Attributes;
 using SwaggerWcf.Models;
+using Newtonsoft.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace SwaggerWcf.Support
 {
@@ -67,7 +69,7 @@ namespace SwaggerWcf.Support
 
             if (schema.TypeFormat.Type == ParameterType.Integer && schema.TypeFormat.Format == "enum")
             {
-                schema.Enum = new List<int>();
+                schema.Enum = new List<uint>();
 
                 Type propType = definitionType;
 
@@ -129,7 +131,7 @@ namespace SwaggerWcf.Support
         private static void ProcessProperties(Type definitionType, DefinitionSchema schema, IList<string> hiddenTags,
                                               Stack<Type> typesStack)
         {
-            PropertyInfo[] properties = definitionType.GetProperties();
+            PropertyInfo[] properties = definitionType.GetProperties().Where(o=>o.GetCustomAttribute<JsonPropertyAttribute>() != null).ToArray();
             schema.Properties = new List<DefinitionProperty>();
 
             foreach (PropertyInfo propertyInfo in properties)
@@ -195,12 +197,15 @@ namespace SwaggerWcf.Support
             if (propertyInfo.GetCustomAttribute<SwaggerWcfHiddenAttribute>() != null
                 || propertyInfo.GetCustomAttributes<SwaggerWcfTagAttribute>()
                                .Select(t => t.TagName)
-                               .Any(hiddenTags.Contains))
+                               .Any(hiddenTags.Contains)
+                || propertyInfo.GetCustomAttribute<JsonIgnoreAttribute>() != null
+                               )
                 return null;
 
             TypeFormat typeFormat = Helpers.MapSwaggerType(propertyInfo.PropertyType, null);
 
-            DefinitionProperty prop = new DefinitionProperty { Title = propertyInfo.Name };
+            var jsonPropertyAttribute = propertyInfo.GetCustomAttribute<JsonPropertyAttribute>();
+            DefinitionProperty prop = new DefinitionProperty { Title = jsonPropertyAttribute?.PropertyName ?? propertyInfo.Name };
 
             DataMemberAttribute dataMemberAttribute = propertyInfo.GetCustomAttribute<DataMemberAttribute>();
             if (dataMemberAttribute != null)
@@ -210,6 +215,8 @@ namespace SwaggerWcf.Support
 
                 prop.Required = dataMemberAttribute.IsRequired;
             }
+            else
+                prop.Required = jsonPropertyAttribute?.Required == Required.AllowNull;
 
             // Special case - if it came out required, but we unwrapped a null-able type,
             // then it's necessarily not required.  Ideally this would only set the default,
@@ -255,7 +262,7 @@ namespace SwaggerWcf.Support
 
             if (prop.TypeFormat.Type == ParameterType.Integer && prop.TypeFormat.Format == "enum")
             {
-                prop.Enum = new List<int>();
+                prop.Enum = new List<uint>();
 
                 Type propType = propertyInfo.PropertyType;
 
@@ -325,14 +332,14 @@ namespace SwaggerWcf.Support
             ApplyIfValid(LastValidValue(attrs, a => a._MultipleOf), x => prop.MultipleOf = x.Value);
         }
         
-        private static int GetEnumMemberValue(Type enumType, string enumName)
+        private static uint GetEnumMemberValue(Type enumType, string enumName)
         {
             if (string.IsNullOrWhiteSpace(enumName))
                 return 0;
             var enumVal = Enum.Parse(enumType, enumName, true);
             var underlyingType = Enum.GetUnderlyingType(enumType);
             var val = Convert.ChangeType(enumVal, underlyingType);
-            return Convert.ToInt32(val);
+            return Convert.ToUInt32(val);
         }
     }
 }
